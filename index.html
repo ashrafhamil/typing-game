@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>monkeytype-lite</title>
+<style>
+  :root {
+    --bg: #323437;
+    --sub: #646669;
+    --text: #d1d0c5;
+    --main: #e2b714;
+    --error: #ca4754;
+    --caret: #e2b714;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--sub);
+    font-family: "SFMono-Regular", Menlo, Consolas, "Roboto Mono", monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    padding: 1.5rem;
+    cursor: default;
+  }
+  h1 { color: var(--main); font-size: 1.5rem; font-weight: 600; letter-spacing: 0.05em; }
+  h1 span { color: var(--sub); }
+
+  #config { display: flex; gap: 0.5rem; align-items: center; font-size: 0.9rem; }
+  #config button {
+    background: none; border: none; color: var(--sub);
+    font-family: inherit; font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.5rem;
+    border-radius: 0.4rem;
+  }
+  #config button.active { color: var(--main); }
+  #config button:hover { color: var(--text); }
+
+  #words {
+    position: relative;
+    max-width: 1000px;
+    font-size: 1.6rem;
+    line-height: 2.4rem;
+    user-select: none;
+    letter-spacing: 0.02em;
+  }
+  .word { display: inline-block; margin: 0 0.55rem 0.4rem 0; }
+  .char.correct { color: var(--text); }
+  .char.incorrect { color: var(--error); }
+  .char.extra { color: var(--error); opacity: 0.7; }
+
+  #caret {
+    position: absolute;
+    width: 2px;
+    height: 1.8rem;
+    background: var(--caret);
+    border-radius: 1px;
+    transition: left 0.08s ease, top 0.08s ease;
+    animation: blink 1s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  body.typing #caret { animation: none; }
+
+  #stats {
+    display: flex; gap: 2.5rem; font-size: 1.1rem;
+    min-height: 1.4rem;
+  }
+  #stats .val { color: var(--main); }
+  #stats .lab { color: var(--sub); font-size: 0.8rem; }
+
+  #restart {
+    background: none; border: none; color: var(--sub);
+    font-family: inherit; font-size: 1.3rem; cursor: pointer;
+    padding: 0.5rem 1rem; border-radius: 0.5rem;
+  }
+  #restart:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+  #hint { color: var(--sub); font-size: 0.8rem; opacity: 0.7; }
+</style>
+</head>
+<body>
+  <h1>monkeytype<span>-lite</span></h1>
+
+  <div id="config">
+    <span style="margin-right:.5rem">words:</span>
+    <button data-count="10">10</button>
+    <button data-count="25" class="active">25</button>
+    <button data-count="50">50</button>
+  </div>
+
+  <div id="words" tabindex="0"><div id="caret"></div></div>
+
+  <div id="stats"></div>
+  <button id="restart" title="restart">↻ restart</button>
+  <div id="hint">just start typing &middot; Tab or click ↻ to reset</div>
+
+<script>
+const WORDS = ("the be to of and a in that have it for not on with he as you do at this " +
+  "but his by from they we say her she or an will my one all would there their what " +
+  "so up out if about who get which go me when make can like time no just him know " +
+  "take people into year your good some could them see other than then now look only " +
+  "come its over think also back after use two how our work first well way even new " +
+  "want because any these give day most us").split(" ");
+
+let wordCount = 25;
+let target = [];        // array of words
+let typed = [];         // array of typed strings, one per word index
+let active = 0;         // current word index
+let started = false;
+let startTime = 0;
+let finished = false;
+
+const wordsEl = document.getElementById("words");
+const caretEl = document.getElementById("caret");
+const statsEl = document.getElementById("stats");
+
+function randomWords(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(WORDS[Math.floor(Math.random() * WORDS.length)]);
+  return out;
+}
+
+function reset() {
+  target = randomWords(wordCount);
+  typed = target.map(() => "");
+  active = 0;
+  started = false;
+  finished = false;
+  startTime = 0;
+  statsEl.innerHTML = "";
+  document.body.classList.remove("typing");
+  render();
+  wordsEl.focus();
+}
+
+function render() {
+  // Rebuild word/char spans.
+  const frag = document.createDocumentFragment();
+  frag.appendChild(caretEl);
+  target.forEach((word, wi) => {
+    const wEl = document.createElement("div");
+    wEl.className = "word";
+    wEl.dataset.i = wi;
+    const t = typed[wi];
+    const len = Math.max(word.length, t.length);
+    for (let ci = 0; ci < len; ci++) {
+      const c = document.createElement("span");
+      c.className = "char";
+      if (ci < word.length) {
+        c.textContent = word[ci];
+        if (ci < t.length) c.classList.add(t[ci] === word[ci] ? "correct" : "incorrect");
+      } else {
+        c.textContent = t[ci];     // extra typed chars
+        c.classList.add("extra");
+      }
+      wEl.appendChild(c);
+    }
+    frag.appendChild(wEl);
+  });
+  wordsEl.innerHTML = "";
+  wordsEl.appendChild(frag);
+  positionCaret();
+}
+
+function positionCaret() {
+  const wEl = wordsEl.querySelector(`.word[data-i="${active}"]`);
+  if (!wEl) return;
+  const chars = wEl.querySelectorAll(".char");
+  const pos = typed[active].length;
+  const box = wordsEl.getBoundingClientRect();
+  let left, top;
+  if (chars.length && pos < chars.length) {
+    const r = chars[pos].getBoundingClientRect();
+    left = r.left - box.left; top = r.top - box.top;
+  } else if (chars.length) {
+    const r = chars[chars.length - 1].getBoundingClientRect();
+    left = r.right - box.left; top = r.top - box.top;
+  } else {
+    const r = wEl.getBoundingClientRect();
+    left = r.left - box.left; top = r.top - box.top;
+  }
+  caretEl.style.left = left + "px";
+  caretEl.style.top = top + "px";
+}
+
+function finish() {
+  finished = true;
+  document.body.classList.remove("typing");
+  const elapsed = (Date.now() - startTime) / 1000;
+  let correctChars = 0, totalChars = 0;
+  target.forEach((word, wi) => {
+    const t = typed[wi];
+    for (let ci = 0; ci < word.length; ci++) {
+      totalChars++;
+      if (t[ci] === word[ci]) correctChars++;
+    }
+    if (wi < target.length - 1) {        // separating space
+      totalChars++;
+      if (t === word) correctChars++;     // space credited only on a fully correct word
+    }
+  });
+  const wpm = (correctChars / 5) / (elapsed / 60);
+  const acc = 100 * correctChars / totalChars;
+  statsEl.innerHTML =
+    `<div><div class="val">${wpm.toFixed(0)}</div><div class="lab">wpm</div></div>` +
+    `<div><div class="val">${acc.toFixed(1)}%</div><div class="lab">accuracy</div></div>` +
+    `<div><div class="val">${elapsed.toFixed(1)}s</div><div class="lab">time</div></div>`;
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Tab") { e.preventDefault(); reset(); return; }
+  if (finished) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  if (e.key === "Backspace") {
+    e.preventDefault();
+    if (typed[active].length > 0) {
+      typed[active] = typed[active].slice(0, -1);
+    } else if (active > 0) {
+      active--;
+    }
+    render();
+    return;
+  }
+
+  if (e.key === " ") {
+    e.preventDefault();
+    if (typed[active].length === 0) return;   // ignore leading space
+    if (active < target.length - 1) {
+      active++;
+      render();
+    } else {
+      finish();
+    }
+    return;
+  }
+
+  if (e.key.length === 1) {
+    e.preventDefault();
+    if (!started) { started = true; startTime = Date.now(); document.body.classList.add("typing"); }
+    typed[active] += e.key;
+    render();
+    // Auto-finish if last word typed to full length.
+    if (active === target.length - 1 && typed[active].length >= target[active].length) {
+      // don't auto-finish; let user hit space/keep typing — monkeytype waits for space
+    }
+  }
+});
+
+document.getElementById("config").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-count]");
+  if (!btn) return;
+  document.querySelectorAll("#config button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  wordCount = parseInt(btn.dataset.count, 10);
+  reset();
+});
+
+document.getElementById("restart").addEventListener("click", reset);
+wordsEl.addEventListener("click", () => wordsEl.focus());
+window.addEventListener("resize", positionCaret);
+
+reset();
+</script>
+</body>
+</html>
