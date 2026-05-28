@@ -25,14 +25,16 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2rem;
+    gap: 1.5rem;
     padding: 1.5rem;
     cursor: default;
   }
   h1 { color: var(--main); font-size: 1.5rem; font-weight: 600; letter-spacing: 0.05em; }
   h1 span { color: var(--sub); }
 
-  #config { display: flex; gap: 0.5rem; align-items: center; font-size: 0.9rem; }
+  #config { display: flex; gap: 0.4rem; align-items: center; font-size: 0.9rem; }
+  #config .label { margin: 0 0.3rem 0 0.4rem; }
+  #config .divider { color: var(--sub); opacity: 0.4; margin: 0 0.2rem; }
   #config button {
     background: none; border: none; color: var(--sub);
     font-family: inherit; font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.5rem;
@@ -41,14 +43,19 @@
   #config button.active { color: var(--main); }
   #config button:hover { color: var(--text); }
 
+  #timer { color: var(--main); font-size: 1.4rem; min-height: 1.4rem; }
+
   #words {
     position: relative;
+    width: 100%;
     max-width: 1000px;
+    overflow: hidden;
     font-size: 1.6rem;
     line-height: 2.4rem;
     user-select: none;
     letter-spacing: 0.02em;
   }
+  #wordsInner { position: relative; transition: transform 0.15s ease; }
   .word { display: inline-block; margin: 0 0.55rem 0.4rem 0; }
   .char.correct { color: var(--text); }
   .char.incorrect { color: var(--error); }
@@ -87,13 +94,20 @@
   <h1>monkeytype<span>-lite</span></h1>
 
   <div id="config">
-    <span style="margin-right:.5rem">words:</span>
-    <button data-count="10">10</button>
-    <button data-count="25" class="active">25</button>
-    <button data-count="50">50</button>
+    <span class="label">time:</span>
+    <button data-mode="time" data-val="15">15</button>
+    <button data-mode="time" data-val="30">30</button>
+    <button data-mode="time" data-val="60">60</button>
+    <span class="divider">|</span>
+    <span class="label">words:</span>
+    <button data-mode="words" data-val="10">10</button>
+    <button data-mode="words" data-val="25" class="active">25</button>
+    <button data-mode="words" data-val="50">50</button>
   </div>
 
-  <div id="words" tabindex="0"><div id="caret"></div></div>
+  <div id="timer"></div>
+
+  <div id="words" tabindex="0"><div id="wordsInner"><div id="caret"></div></div></div>
 
   <div id="stats"></div>
   <button id="restart" title="restart">↻ restart</button>
@@ -107,17 +121,23 @@ const WORDS = ("the be to of and a in that have it for not on with he as you do 
   "come its over think also back after use two how our work first well way even new " +
   "want because any these give day most us").split(" ");
 
-let wordCount = 25;
+let mode = "words";     // "words" | "time"
+let wordCount = 25;     // words mode target
+let timeLimit = 30;     // time mode seconds
+
 let target = [];        // array of words
-let typed = [];         // array of typed strings, one per word index
+let typed = [];         // typed string per word index
 let active = 0;         // current word index
 let started = false;
 let startTime = 0;
 let finished = false;
+let timerId = null;
 
 const wordsEl = document.getElementById("words");
+const innerEl = document.getElementById("wordsInner");
 const caretEl = document.getElementById("caret");
 const statsEl = document.getElementById("stats");
+const timerEl = document.getElementById("timer");
 
 function randomWords(n) {
   const out = [];
@@ -125,21 +145,35 @@ function randomWords(n) {
   return out;
 }
 
+function addWords(n) {
+  const extra = randomWords(n);
+  target.push(...extra);
+  typed.push(...extra.map(() => ""));
+}
+
 function reset() {
-  target = randomWords(wordCount);
-  typed = target.map(() => "");
+  clearInterval(timerId);
+  timerId = null;
   active = 0;
   started = false;
   finished = false;
   startTime = 0;
+  typed = [];
+  target = [];
   statsEl.innerHTML = "";
   document.body.classList.remove("typing");
+  if (mode === "time") {
+    addWords(60);
+    timerEl.textContent = timeLimit;
+  } else {
+    addWords(wordCount);
+    timerEl.textContent = "";
+  }
   render();
   wordsEl.focus();
 }
 
 function render() {
-  // Rebuild word/char spans.
   const frag = document.createDocumentFragment();
   frag.appendChild(caretEl);
   target.forEach((word, wi) => {
@@ -155,24 +189,42 @@ function render() {
         c.textContent = word[ci];
         if (ci < t.length) c.classList.add(t[ci] === word[ci] ? "correct" : "incorrect");
       } else {
-        c.textContent = t[ci];     // extra typed chars
+        c.textContent = t[ci];
         c.classList.add("extra");
       }
       wEl.appendChild(c);
     }
     frag.appendChild(wEl);
   });
-  wordsEl.innerHTML = "";
-  wordsEl.appendChild(frag);
+  innerEl.innerHTML = "";
+  innerEl.appendChild(frag);
+  layout();
+}
+
+function layout() {
+  // Constrain to 3 visible lines and scroll the active word into view.
+  const wEl = innerEl.querySelector(`.word[data-i="${active}"]`);
+  if (!wEl) return;
+  const words = innerEl.querySelectorAll(".word");
+  const firstTop = words[0].offsetTop;
+  // Row height = vertical gap between two stacked lines.
+  let rowH = wEl.offsetHeight + 6;
+  for (const w of words) {
+    if (w.offsetTop > firstTop) { rowH = w.offsetTop - firstTop; break; }
+  }
+  wordsEl.style.height = (rowH * 3) + "px";
+  const activeTop = wEl.offsetTop - firstTop;
+  const shift = Math.max(0, activeTop - rowH);   // keep active on the 2nd line
+  innerEl.style.transform = `translateY(${-shift}px)`;
   positionCaret();
 }
 
 function positionCaret() {
-  const wEl = wordsEl.querySelector(`.word[data-i="${active}"]`);
+  const wEl = innerEl.querySelector(`.word[data-i="${active}"]`);
   if (!wEl) return;
   const chars = wEl.querySelectorAll(".char");
   const pos = typed[active].length;
-  const box = wordsEl.getBoundingClientRect();
+  const box = innerEl.getBoundingClientRect();
   let left, top;
   if (chars.length && pos < chars.length) {
     const r = chars[pos].getBoundingClientRect();
@@ -181,31 +233,45 @@ function positionCaret() {
     const r = chars[chars.length - 1].getBoundingClientRect();
     left = r.right - box.left; top = r.top - box.top;
   } else {
-    const r = wEl.getBoundingClientRect();
-    left = r.left - box.left; top = r.top - box.top;
+    left = wEl.offsetLeft; top = wEl.offsetTop;
   }
   caretEl.style.left = left + "px";
   caretEl.style.top = top + "px";
 }
 
+function startTimer() {
+  timerId = setInterval(() => {
+    const remaining = Math.ceil(timeLimit - (Date.now() - startTime) / 1000);
+    timerEl.textContent = Math.max(0, remaining);
+    if (remaining <= 0) finish();
+  }, 100);
+}
+
 function finish() {
+  if (finished) return;
   finished = true;
+  clearInterval(timerId);
+  timerId = null;
   document.body.classList.remove("typing");
-  const elapsed = (Date.now() - startTime) / 1000;
+  const elapsed = mode === "time" ? timeLimit : (Date.now() - startTime) / 1000;
+
   let correctChars = 0, totalChars = 0;
-  target.forEach((word, wi) => {
-    const t = typed[wi];
+  const limit = mode === "time" ? active + 1 : target.length;
+  for (let wi = 0; wi < limit; wi++) {
+    const word = target[wi], t = typed[wi];
+    if (mode === "time" && t.length === 0) continue;   // untouched trailing words
     for (let ci = 0; ci < word.length; ci++) {
       totalChars++;
       if (t[ci] === word[ci]) correctChars++;
     }
-    if (wi < target.length - 1) {        // separating space
+    if (wi < limit - 1) {
       totalChars++;
-      if (t === word) correctChars++;     // space credited only on a fully correct word
+      if (t === word) correctChars++;
     }
-  });
+  }
   const wpm = (correctChars / 5) / (elapsed / 60);
-  const acc = 100 * correctChars / totalChars;
+  const acc = totalChars ? 100 * correctChars / totalChars : 0;
+  timerEl.textContent = "";
   statsEl.innerHTML =
     `<div><div class="val">${wpm.toFixed(0)}</div><div class="lab">wpm</div></div>` +
     `<div><div class="val">${acc.toFixed(1)}%</div><div class="lab">accuracy</div></div>` +
@@ -219,22 +285,20 @@ document.addEventListener("keydown", (e) => {
 
   if (e.key === "Backspace") {
     e.preventDefault();
-    if (typed[active].length > 0) {
-      typed[active] = typed[active].slice(0, -1);
-    } else if (active > 0) {
-      active--;
-    }
+    if (typed[active].length > 0) typed[active] = typed[active].slice(0, -1);
+    else if (active > 0) active--;
     render();
     return;
   }
 
   if (e.key === " ") {
     e.preventDefault();
-    if (typed[active].length === 0) return;   // ignore leading space
+    if (typed[active].length === 0) return;
     if (active < target.length - 1) {
       active++;
+      if (mode === "time" && active > target.length - 15) addWords(30);
       render();
-    } else {
+    } else if (mode === "words") {
       finish();
     }
     return;
@@ -242,28 +306,31 @@ document.addEventListener("keydown", (e) => {
 
   if (e.key.length === 1) {
     e.preventDefault();
-    if (!started) { started = true; startTime = Date.now(); document.body.classList.add("typing"); }
+    if (!started) {
+      started = true;
+      startTime = Date.now();
+      document.body.classList.add("typing");
+      if (mode === "time") startTimer();
+    }
     typed[active] += e.key;
     render();
-    // Auto-finish if last word typed to full length.
-    if (active === target.length - 1 && typed[active].length >= target[active].length) {
-      // don't auto-finish; let user hit space/keep typing — monkeytype waits for space
-    }
   }
 });
 
 document.getElementById("config").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-count]");
+  const btn = e.target.closest("button[data-mode]");
   if (!btn) return;
   document.querySelectorAll("#config button").forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
-  wordCount = parseInt(btn.dataset.count, 10);
+  mode = btn.dataset.mode;
+  if (mode === "time") timeLimit = parseInt(btn.dataset.val, 10);
+  else wordCount = parseInt(btn.dataset.val, 10);
   reset();
 });
 
 document.getElementById("restart").addEventListener("click", reset);
 wordsEl.addEventListener("click", () => wordsEl.focus());
-window.addEventListener("resize", positionCaret);
+window.addEventListener("resize", layout);
 
 reset();
 </script>
