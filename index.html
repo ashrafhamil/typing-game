@@ -32,16 +32,16 @@
   h1 { color: var(--main); font-size: 1.5rem; font-weight: 600; letter-spacing: 0.05em; }
   h1 span { color: var(--sub); }
 
-  #config { display: flex; gap: 0.4rem; align-items: center; font-size: 0.9rem; }
-  #config .label { margin: 0 0.3rem 0 0.4rem; }
-  #config .divider { color: var(--sub); opacity: 0.4; margin: 0 0.2rem; }
-  #config button {
+  .config { display: flex; gap: 0.4rem; align-items: center; font-size: 0.9rem; }
+  .config .label { margin: 0 0.3rem 0 0.4rem; }
+  .config .divider { color: var(--sub); opacity: 0.4; margin: 0 0.2rem; }
+  .config button {
     background: none; border: none; color: var(--sub);
     font-family: inherit; font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.5rem;
     border-radius: 0.4rem;
   }
-  #config button.active { color: var(--main); }
-  #config button:hover { color: var(--text); }
+  .config button.active { color: var(--main); }
+  .config button:hover { color: var(--text); }
 
   #timer { color: var(--main); font-size: 1.4rem; min-height: 1.4rem; }
 
@@ -93,7 +93,7 @@
 <body>
   <h1>monkeytype<span>-lite</span></h1>
 
-  <div id="config">
+  <div class="config">
     <span class="label">time:</span>
     <button data-mode="time" data-val="15">15</button>
     <button data-mode="time" data-val="30">30</button>
@@ -105,6 +105,12 @@
     <button data-mode="words" data-val="50">50</button>
   </div>
 
+  <div class="config">
+    <span class="label">lang:</span>
+    <button data-lang="en" class="active">English</button>
+    <button data-lang="bm">Bahasa Melayu</button>
+  </div>
+
   <div id="timer"></div>
 
   <div id="words" tabindex="0"><div id="wordsInner"><div id="caret"></div></div></div>
@@ -114,13 +120,23 @@
   <div id="hint">just start typing &middot; Tab or click ↻ to reset</div>
 
 <script>
-const WORDS = ("the be to of and a in that have it for not on with he as you do at this " +
+const WORDS_EN = ("the be to of and a in that have it for not on with he as you do at this " +
   "but his by from they we say her she or an will my one all would there their what " +
   "so up out if about who get which go me when make can like time no just him know " +
   "take people into year your good some could them see other than then now look only " +
   "come its over think also back after use two how our work first well way even new " +
   "want because any these give day most us").split(" ");
 
+const WORDS_BM = ("yang dan di itu ini dengan untuk pada tidak saya kita kami mereka dia " +
+  "ada akan dari ke atau juga sudah belum boleh hendak mahu buat kerja orang masa tahun " +
+  "hari baik besar kecil banyak sedikit lebih kurang semua satu dua tiga apa siapa mana " +
+  "bila kenapa bagaimana sini sana atas bawah depan belakang dalam luar rumah makan minum " +
+  "tidur jalan lihat dengar cakap faham tahu suka sayang baru lama cepat lambat panas sejuk " +
+  "air api tanah langit bumi dunia negara bandar kampung sekolah kawan keluarga ibu bapa " +
+  "anak abang adik nama kereta buku duit").split(" ");
+
+let words = WORDS_EN;   // active word pool
+let lang = "en";        // "en" | "bm"
 let mode = "words";     // "words" | "time"
 let wordCount = 25;     // words mode target
 let timeLimit = 30;     // time mode seconds
@@ -141,7 +157,7 @@ const timerEl = document.getElementById("timer");
 
 function randomWords(n) {
   const out = [];
-  for (let i = 0; i < n; i++) out.push(WORDS[Math.floor(Math.random() * WORDS.length)]);
+  for (let i = 0; i < n; i++) out.push(words[Math.floor(Math.random() * words.length)]);
   return out;
 }
 
@@ -317,16 +333,23 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-document.getElementById("config").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-mode]");
+document.querySelectorAll(".config").forEach(cfg => cfg.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
   if (!btn) return;
-  document.querySelectorAll("#config button").forEach(b => b.classList.remove("active"));
-  btn.classList.add("active");
-  mode = btn.dataset.mode;
-  if (mode === "time") timeLimit = parseInt(btn.dataset.val, 10);
-  else wordCount = parseInt(btn.dataset.val, 10);
+  if (btn.dataset.lang) {
+    document.querySelectorAll("button[data-lang]").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    lang = btn.dataset.lang;
+    words = lang === "bm" ? WORDS_BM : WORDS_EN;
+  } else {
+    document.querySelectorAll("button[data-mode]").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    mode = btn.dataset.mode;
+    if (mode === "time") timeLimit = parseInt(btn.dataset.val, 10);
+    else wordCount = parseInt(btn.dataset.val, 10);
+  }
   reset();
-});
+}));
 
 document.getElementById("restart").addEventListener("click", reset);
 wordsEl.addEventListener("click", () => wordsEl.focus());
